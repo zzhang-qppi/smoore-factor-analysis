@@ -89,7 +89,7 @@ for key, group in grouped_comments:
         try:
             index = int(re.findall("\d+", a[0])[0])
             strength = int(re.findall("\d+", a[1])[0])
-            comments.loc[index, "strength"] = strength
+            groupcp.loc[index, "strength"] = strength
         except IndexError:
             continue
     groupcp.to_csv("stiiizycomments_withstrength.csv", mode='a')
