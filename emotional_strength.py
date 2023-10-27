@@ -2,25 +2,9 @@ import pandas as pd
 import openai
 import numpy as np
 import re
+import tiktoken
+import collections
 
-def num_to_letter_index(num: int):
-    # number to letter, e.g. 29---‘ad’
-    quotient = num // 26
-    remainder = num % 26
-    if quotient == 0:
-        return chr(97 + num)
-    else:
-        return chr(97 + quotient - 1) + chr(97 + remainder)
-
-
-def letter_index_to_num(ind: str):
-    # letter to number
-
-    num = -1
-    rev_ind = list(reversed(ind))
-    for i in range(len(ind)):
-        num += (26 ** i) * (ord(rev_ind[i]) - 96)
-    return num
 
 def prompt_formulator(m_comments):
     indexed_comment_string = "comment's index | comment\n----|----------\n" + "\n".join(
@@ -67,15 +51,54 @@ def get_response_from_gpt(m_comments):
         request_timeout=300,
     )
 
-def batch_divider(df, size):
-    ref_arr = np.array(range(len(df)), dtype='i') // size
-    return df.groupby(by=ref_arr)
+def divide_into_batches(data_reader, size_of_batch):
+    # divide the Series of data into several smaller Series
+    # to comply with the token limit or runtime efficiency
+    # data: the file reader of the source data that needs to be divided
+    # length_of_batch: the number of items in each patch
+    #                  -1 - don't batch
+    #                   0 - smart batch
+    #                  >0 - fixed batch size
+    if not issubclass(type(data_reader), collections.abc.Iterator):
+        raise TypeError("Only an Iterator type is allowed.")
+    if size_of_batch == 0:
+        while True:
+            next_batch = []
+            try:
+                next_batch = data_reader.get_chunk(3)
+                while len(tokeniser.encode(prompt_formulator(next_batch))) <= 6500:
+                    a = pd.concat((next_batch, data_reader.get_chunk(3)))
+                    next_batch = a
+            except StopIteration:
+                print("smart batching completed")
+            finally:
+                yield next_batch
+    elif size_of_batch < 0:
+        next_batch = data_reader.get_chunk(100)
+        while True:
+            try:
+                a = pd.concat((next_batch, data_reader.get_chunk(100)))
+                next_batch = a
+            except StopIteration:
+                print("You asked not to batch.")
+            finally:
+                yield next_batch
+    elif size_of_batch > 0:
+        while True:
+            next_batch = []
+            try:
+                next_batch = data_reader.get_chunk(size_of_batch)
+            except StopIteration:
+                print(f"fixed batching completed; size = {size_of_batch}")
+            finally:
+                yield next_batch
 
-comments = pd.read_csv("stiiizycomments.csv", index_col=0).dropna()
-comments.reset_index(inplace=True,drop=True)
-grouped_comments = batch_divider(comments, 200)
+comments = pd.read_csv("stiiizycomments.csv", index_col=0, iterator=True)
+grouped_comments = divide_into_batches(comments, 100)
 
-openai.api_key = "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"
+
+tokeniser = tiktoken.encoding_for_model("gpt-4")
+openai.api_key = ""
 
 for key, group in grouped_comments:
     groupcp = group.copy()
@@ -90,8 +113,9 @@ for key, group in grouped_comments:
             index = int(re.findall("\d+", a[0])[0])
             strength = int(re.findall("\d+", a[1])[0])
             groupcp.loc[index, "strength"] = strength
+            comments.loc[index, "strength"] = strength
         except IndexError:
             continue
-    groupcp.to_csv("stiiizycomments_withstrength.csv", mode='a')
+    groupcp.to_csv("stiiizycomments_withstrength.csv", mode='a', header=False)
 
 comments.to_csv("stiiizycomments_withstrength_total.csv")
