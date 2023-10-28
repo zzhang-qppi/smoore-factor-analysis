@@ -2,7 +2,7 @@ import torch
 from torch import nn
 from torch.utils.data import Dataset, DataLoader
 import pandas as pd
-
+import matplotlib.pyplot as plt
 
 class NeuralNetwork(nn.Module):
     def __init__(self, dims):
@@ -43,20 +43,44 @@ def load_datasets(data_file, batch_size: int):
     m_dataloader = DataLoader(m_dataset, batch_size=batch_size, shuffle=True)
     return m_dataloader
 
-def training_loop(dataloader, model, loss_fn, optimizer):
+def training_loop(m_dataloader, model, loss_fn, optimizer):
     model.train()
-    for batch, (x, y) in enumerate(dataloader):
+    for batch, (x, y) in enumerate(m_dataloader):
         ypred = model(x)
         loss = loss_fn(ypred, y)
         loss.backward()
         optimizer.step()
         optimizer.zero_grad()
 
+def test_loop(m_dataloader, model, loss_fn):
+    model.eval()
+    size = len(m_dataloader.dataset)
+    num_batches = len(m_dataloader)
 
-def main(training_data_files, testing_data_files, batch_size, learning_rate, epochs, model_save_path, loss_fn=nn.MSELoss(), optimizer_fn = torch.optim.SGD, dims=(), model_load_path=''):
-    training_dataloader = load_datasets(training_data_files, batch_size)
-    testing_dataloader = load_datasets(testing_data_files, batch_size)
-    print("data loaded")
+    with torch.no_grad():
+        X, y = next(iter(m_dataloader))
+        pred = model(X)
+        test_loss = loss_fn(pred, y).item()
+    return test_loss
+
+def train_and_test(m_train_dataloader, m_test_dataloader, model, loss_fn, optimizer, train_test_ratio: int):
+    model.train()
+    losses = []
+    for batch, (x, y) in enumerate(m_train_dataloader):
+        ypred = model(x)
+        loss = loss_fn(ypred, y)
+        loss.backward()
+        optimizer.step()
+        optimizer.zero_grad()
+        if batch % train_test_ratio == 0:
+            losses.append(test_loop(m_test_dataloader, model, loss_fn))
+        return losses
+
+def main(training_data_files, testing_data_files, batch_size, learning_rate, epochs, train_test_ratio, model_save_path,
+         loss_fn=nn.MSELoss(), optimizer_fn=torch.optim.SGD, dims=(), model_load_path=''):
+    train_dataloader = load_datasets(training_data_files, batch_size)
+    test_dataloader = load_datasets(testing_data_files, batch_size)
+    print("datasets loaded")
     if model_load_path:
         model = torch.load(model_load_path)
     else:
@@ -72,10 +96,13 @@ def main(training_data_files, testing_data_files, batch_size, learning_rate, epo
     print("model loaded")
 
     optimizer = optimizer_fn(model.parameters(), lr=learning_rate)
-
+    losses = []
     for i in range(epochs):
-        training_loop(training_dataloader, model, loss_fn, optimizer)
+        losses += train_and_test(train_dataloader, test_dataloader, model, loss_fn, optimizer, train_test_ratio)
         print(i+1, "th training done")
+    plt.plot(losses)
+    plt.title("loss")
+    plt.show()
     for name, param in model.named_parameters():
         if param.requires_grad:
             print(name, param.data)
@@ -85,11 +112,13 @@ def main(training_data_files, testing_data_files, batch_size, learning_rate, epo
     return 1
 
 
-main(training_data_files=("test-targets01.csv", "test-inputs01.csv"),
-     testing_data_files=("test-targets02.csv", "test-inputs02.csv"),
-     batch_size=5,
-     learning_rate=0.1,
-     epochs=10,
-     model_save_path="models/modeltest01.pth",
-     dims=(4,1)
-     )
+if __name__ == "__main__":
+    main(training_data_files=("test-targets01.csv", "test-inputs01.csv"),
+         testing_data_files=("test-targets02.csv", "test-inputs02.csv"),
+         batch_size=5,
+         learning_rate=1,
+         epochs=10,
+         train_test_ratio=3,
+         model_save_path="models/modeltest01.pth",
+         dims=(4, 1)
+         )

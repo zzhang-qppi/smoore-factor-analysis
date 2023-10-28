@@ -4,7 +4,7 @@ import numpy as np
 import re
 import tiktoken
 import collections
-
+import os
 
 def prompt_formulator(m_comments):
     indexed_comment_string = "comment's index | comment\n----|----------\n" + "\n".join(
@@ -63,7 +63,7 @@ grouped_comments = divider(comments, 65)
 
 
 tokeniser = tiktoken.encoding_for_model("gpt-4")
-openai.api_key = "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"
+openai.api_key = os.getenv("api_key")
 
 for key, group in grouped_comments:
     groupcp = group.copy()
